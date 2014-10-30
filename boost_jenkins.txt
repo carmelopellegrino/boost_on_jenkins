@@ -1,0 +1,89 @@
+#/bin/sh
+
+JOB_ROOT_DIR=`pwd`
+TMP_DIR=boost_tmp_copy/
+BOOST_INSTALL_DIR=boost-1.56/
+
+trap "rm -rf ${TMP_DIR} ${BOOST_INSTALL_DIR} boost_1_56_0" 0
+
+[ -e boost_1_56_0.tar.bz2 ] || wget 'http://garr.dl.sourceforge.net/project/boost/boost/1.56.0/boost_1_56_0.tar.bz2' --progress=dot:giga
+
+# Test if the environment is clean: TMP_DIR, BOOST_INSTALL_DIR and the source dir shouldn't exist
+[ -d boost_1_56_0 -o -d ${TMP_DIR} -o -d ${BOOST_INSTALL_DIR} ] && echo "Dirty workspace" && exit 1
+
+rm -rf boost-1.56.tgz boost-1.56-dev.tgz
+
+mkdir -p ${BOOST_INSTALL_DIR}
+mkdir -p ${TMP_DIR}
+
+# Unpack sources
+tar jxf boost_1_56_0.tar.bz2
+
+cd boost_1_56_0
+
+# Build bcp
+cd tools/build
+./bootstrap.sh
+cd -
+cd tools/bcp
+../build/b2
+cd -
+
+
+# extract a minimal set of boost (i.e. thread) needed for km3
+# NB chrono should be picked up by bcp as a dependency of thread, but
+# it is not, so mention it explicitly
+# config and build are needed to build thread
+dist/bin/bcp thread chrono config build asio property_tree algorithm/string random accumulators program_options ${JOB_ROOT_DIR}/${TMP_DIR}
+
+# Bootstap
+./bootstrap.sh --with-libraries=thread,random,chrono,program_options
+./b2 --prefix=${JOB_ROOT_DIR}/${BOOST_INSTALL_DIR} --build-type=minimal --build-dir=build install
+
+cd ${JOB_ROOT_DIR}
+
+rm -rf ${BOOST_INSTALL_DIR}/include/boost
+mkdir -p  ${BOOST_INSTALL_DIR}/include/boost
+
+mv ${TMP_DIR}/boost/* ${BOOST_INSTALL_DIR}/include/boost/
+
+# prepare a dev tarball for distribution that includes everything
+tar czvf boost-1.56-dev.tgz ${BOOST_INSTALL_DIR}
+
+# prepare a runtime tarball for distribution that includes only shared libraries
+find ${TMP_DIR} -name \*.so\* -print0 | tar czvf boost-1.56.tgz --null -T -
+
+
+
+exit 0
+
+# build b2
+cd boost_1_56_0/tools/build/
+./bootstrap.sh
+
+# build bcp
+cd ../bcp/
+../build/b2
+
+# extract a minimal set of boost (i.e. thread) needed for km3
+# NB chrono should be picked up by bcp as a dependency of thread, but
+# it is not, so mention it explicitly
+# config and build are needed to build thread
+cd ../../
+mkdir ../${TMP_DIR}
+dist/bin/bcp thread chrono config build asio property_tree algorithm/string random accumulators program_options ../${TMP_DIR}
+
+# build and install the minimal boost
+cd ../${TMP_DIR}
+./bootstrap.sh --with-libraries=thread,random,chrono,program_options
+mkdir ../boost-1.56
+./b2 --prefix=../boost-1.56 --build-type=minimal --build-dir=build install
+
+# prepare artifacts
+cd ..
+
+# prepare a dev tarball for distribution that includes everything
+tar czvf boost-1.56-dev.tgz boost-1.56
+
+# prepare a runtime tarball for distribution that includes only shared libraries
+find boost-1.56 -name \*.so\* -print0 | tar czvf boost-1.56.tgz --null -T -
